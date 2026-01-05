@@ -1,10 +1,10 @@
 "use client";
 
-import { useCart } from "@/contexts/CartContext";
+import { useFoodCart } from "@/contexts/FoodCartContext";
 import { ShoppingCart } from "lucide-react";
 
 export function CartButton() {
-  const { getItemCount, setIsCartOpen } = useCart();
+  const { getItemCount, setIsCartOpen } = useFoodCart();
   const itemCount = getItemCount();
 
   return (

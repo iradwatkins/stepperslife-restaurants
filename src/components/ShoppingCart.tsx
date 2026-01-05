@@ -1,31 +1,35 @@
 "use client";
 
-import { useCart } from "@/contexts/CartContext";
-import { X, Trash2, Plus, Minus, ShoppingBag, Package, Store, Building2, LogIn } from "lucide-react";
-import Image from "next/image";
-import Link from "next/link";
+import { useFoodCart } from "@/contexts/FoodCartContext";
+import { X, Trash2, Plus, Minus, ShoppingBag, Utensils, LogIn } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 
 export function ShoppingCart() {
-  const { items, removeItemByIndex, updateQuantityByIndex, getSubtotal, getItemsByVendor, getVendorCount, isCartOpen, setIsCartOpen } =
-    useCart();
+  const {
+    cart,
+    removeFromCart,
+    updateQuantity,
+    getItemCount,
+    getSubtotal,
+    isCartOpen,
+    setIsCartOpen,
+  } = useFoodCart();
 
   const router = useRouter();
   const currentUser = useQuery(api.users.queries.getCurrentUser);
 
   const handleCheckout = () => {
-    // Show toast if not logged in
     if (!currentUser) {
       toast("Sign in required", {
-        description: "Please sign in to complete your purchase",
+        description: "Please sign in to complete your order",
         action: {
           label: "Sign In",
           onClick: () => {
             setIsCartOpen(false);
-            router.push("/login?redirect=/marketplace/checkout");
+            router.push(`/login?redirect=/restaurants/${cart.restaurantSlug}/checkout`);
           },
         },
         icon: <LogIn className="w-4 h-4" />,
@@ -33,10 +37,12 @@ export function ShoppingCart() {
       return;
     }
     setIsCartOpen(false);
-    router.push("/marketplace/checkout");
+    router.push(`/restaurants/${cart.restaurantSlug}/checkout`);
   };
 
   if (!isCartOpen) return null;
+
+  const itemCount = getItemCount();
 
   return (
     <>
@@ -47,7 +53,7 @@ export function ShoppingCart() {
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+          if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             setIsCartOpen(false);
           }
@@ -61,13 +67,13 @@ export function ShoppingCart() {
         <div className="flex items-center justify-between p-6 border-b border-border">
           <div className="flex items-center gap-3">
             <ShoppingBag className="w-6 h-6 text-primary" />
-            <h2 className="text-2xl font-bold text-foreground">Shopping Cart</h2>
+            <h2 className="text-2xl font-bold text-foreground">Your Order</h2>
           </div>
           <button
             type="button"
             onClick={() => setIsCartOpen(false)}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
-            aria-label="Close shopping cart"
+            aria-label="Close cart"
           >
             <X className="w-6 h-6 text-muted-foreground" />
           </button>
@@ -75,160 +81,96 @@ export function ShoppingCart() {
 
         {/* Cart Items */}
         <div className="flex-1 overflow-y-auto p-6">
-          {items.length === 0 ? (
+          {cart.items.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <Package className="w-16 h-16 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                Your cart is empty
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                Add some products to get started
-              </p>
-              <Link
-                href="/marketplace"
+              <Utensils className="w-16 h-16 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">Your cart is empty</h3>
+              <p className="text-muted-foreground mb-6">Add items from a restaurant to get started</p>
+              <button
                 onClick={() => setIsCartOpen(false)}
                 className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
               >
-                Browse Products
-              </Link>
+                Browse Restaurants
+              </button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* Multi-vendor notice */}
-              {getVendorCount() > 1 && (
-                <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
-                  <p className="text-sm text-foreground flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-primary flex-shrink-0" />
-                    Items from <strong>{getVendorCount()} vendors</strong>
-                  </p>
+            <div className="space-y-6">
+              {/* Restaurant Name */}
+              {cart.restaurantName && (
+                <div className="pb-3 border-b border-border">
+                  <h3 className="font-semibold text-foreground">{cart.restaurantName}</h3>
                 </div>
               )}
 
-              {/* Items grouped by vendor */}
-              {getItemsByVendor().map((vendorGroup) => (
-                <div key={vendorGroup.vendorId} className="space-y-3">
-                  {/* Vendor header (only show if multiple vendors) */}
-                  {getVendorCount() > 1 && (
-                    <div className="flex items-center gap-2 py-2 px-3 bg-muted/50 rounded-lg">
-                      <Store className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-medium text-foreground">{vendorGroup.vendorName}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        ${(vendorGroup.subtotal / 100).toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Vendor items */}
-                  {vendorGroup.items.map((item) => {
-                    // Find the actual index in the flat items array for update/remove operations
-                    const actualIndex = items.findIndex(
-                      (i) =>
-                        i.productId === item.productId &&
-                        i.variantId === item.variantId &&
-                        JSON.stringify(i.productOptions) === JSON.stringify(item.productOptions)
-                    );
-
-                    return (
-                      <div
-                        key={`${item.productId}-${item.variantId || 'default'}-${actualIndex}`}
-                        className="flex gap-4 p-4 bg-muted rounded-lg"
-                      >
-                        {/* Product Image */}
-                        <div className="relative w-20 h-20 bg-muted rounded-lg overflow-hidden flex-shrink-0">
-                          {item.productImage ? (
-                            <Image
-                              src={item.productImage}
-                              alt={item.productName}
-                              fill
-                              className="object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <Package className="w-8 h-8 text-muted-foreground" />
-                            </div>
-                          )}
+              {/* Items */}
+              <div className="space-y-3">
+                {cart.items.map((item) => (
+                  <div key={item.menuItemId} className="flex gap-4 p-4 bg-muted rounded-lg">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-foreground">{item.name}</h4>
+                      {item.notes && (
+                        <p className="text-sm text-muted-foreground line-clamp-1">{item.notes}</p>
+                      )}
+                      <p className="text-sm text-muted-foreground mt-1">
+                        ${(item.price / 100).toFixed(2)} each
+                      </p>
+                      <div className="flex items-center gap-3 mt-2">
+                        <div className="flex items-center border border-input rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => updateQuantity(item.menuItemId, item.quantity - 1)}
+                            className="p-1 hover:bg-muted rounded-l-lg"
+                            aria-label="Decrease quantity"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <span className="px-3 py-1 font-semibold min-w-[2rem] text-center">
+                            {item.quantity}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateQuantity(item.menuItemId, item.quantity + 1)}
+                            className="p-1 hover:bg-muted rounded-r-lg"
+                            aria-label="Increase quantity"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
                         </div>
-
-                        {/* Product Details */}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-foreground line-clamp-2 mb-1">
-                            {item.productName}
-                          </h3>
-                          {item.variantName && (
-                            <p className="text-xs text-muted-foreground mb-1">
-                              {item.variantName}
-                            </p>
-                          )}
-                          <p className="text-sm text-muted-foreground mb-2">
-                            ${(item.productPrice / 100).toFixed(2)} each
-                          </p>
-
-                          {/* Quantity Controls */}
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center border border-input rounded-lg">
-                              <button
-                                type="button"
-                                onClick={() => updateQuantityByIndex(actualIndex, item.quantity - 1)}
-                                className="p-1 hover:bg-muted rounded-l-lg"
-                                aria-label="Decrease quantity"
-                              >
-                                <Minus className="w-4 h-4" />
-                              </button>
-                              <span className="px-3 py-1 font-semibold min-w-[2rem] text-center">
-                                {item.quantity}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => updateQuantityByIndex(actualIndex, item.quantity + 1)}
-                                className="p-1 hover:bg-muted rounded-r-lg"
-                                aria-label="Increase quantity"
-                              >
-                                <Plus className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => removeItemByIndex(actualIndex)}
-                              className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-                              aria-label="Remove from cart"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Item Total */}
-                        <div className="text-right">
-                          <p className="font-bold text-foreground">
-                            ${((item.productPrice * item.quantity) / 100).toFixed(2)}
-                          </p>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Remove by setting quantity to 0
+                            updateQuantity(item.menuItemId, 0);
+                          }}
+                          className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                          aria-label="Remove item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    );
-                  })}
-                </div>
-              ))}
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-foreground">
+                        ${((item.price * item.quantity) / 100).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        {items.length > 0 && (
+        {cart.items.length > 0 && (
           <div className="border-t border-border p-6 space-y-4">
-            {/* Subtotal */}
             <div className="flex items-center justify-between text-lg">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-bold text-foreground">
-                ${(getSubtotal() / 100).toFixed(2)}
-              </span>
+              <span className="text-muted-foreground">Subtotal ({itemCount} items)</span>
+              <span className="font-bold text-foreground">${(getSubtotal() / 100).toFixed(2)}</span>
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              Shipping and taxes calculated at checkout
-            </p>
+            <p className="text-sm text-muted-foreground">Taxes and fees calculated at checkout</p>
 
-            {/* Checkout Button */}
             <button
               type="button"
               onClick={handleCheckout}
@@ -236,15 +178,6 @@ export function ShoppingCart() {
             >
               Proceed to Checkout
             </button>
-
-            {/* Continue Shopping */}
-            <Link
-              href="/marketplace"
-              onClick={() => setIsCartOpen(false)}
-              className="block text-center text-primary hover:underline font-medium"
-            >
-              Continue Shopping
-            </Link>
           </div>
         )}
       </div>
