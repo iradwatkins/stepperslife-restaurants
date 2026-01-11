@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { RoleBasedSidebar } from "@/components/navigation";
 import { AppHeader } from "@/components/sidebar/app-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -20,15 +22,64 @@ function WorkspaceAccessCheck({ children }: { children: React.ReactNode }) {
 // Public paths that don't require restaurateur role
 const PUBLIC_PATHS = ["/restaurateur/apply", "/restaurateur/status"];
 
+// Component to check staff access via Convex query
+function StaffAccessGate({
+  children,
+  onAccessDenied,
+}: {
+  children: React.ReactNode;
+  onAccessDenied: () => void;
+}) {
+  // Query accessible restaurants (includes owned + staff assignments)
+  const accessibleRestaurants = useQuery(api.restaurantStaff.getMyAccessibleRestaurants);
+  const [hasCheckedAccess, setHasCheckedAccess] = useState(false);
+
+  useEffect(() => {
+    // Wait for query to complete
+    if (accessibleRestaurants === undefined) return;
+
+    // If user has any accessible restaurants (owner or staff), grant access
+    if (accessibleRestaurants.length > 0) {
+      setHasCheckedAccess(true);
+    } else {
+      // No accessible restaurants, deny access
+      onAccessDenied();
+    }
+  }, [accessibleRestaurants, onAccessDenied]);
+
+  // Show loading while checking staff access
+  if (accessibleRestaurants === undefined || !hasCheckedAccess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto"></div>
+          <p className="text-sm text-muted-foreground">Verifying access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 export default function RestaurateurLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<NavUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [accessDenied, setAccessDenied] = useState(false);
+  // Track if user has immediate access via platform role (admin/restaurateur/organizer)
+  const [hasPlatformAccess, setHasPlatformAccess] = useState(false);
+  // Track if we need to check staff access via Convex
+  const [needsStaffCheck, setNeedsStaffCheck] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   // Check if current path is public (doesn't require restaurateur role)
   const isPublicPath = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+
+  // Stable callback for access denied (must be declared before conditional returns)
+  const handleAccessDenied = useCallback(() => {
+    setAccessDenied(true);
+  }, []);
 
   // Fetch user data from auth API
   useEffect(() => {
@@ -52,16 +103,20 @@ export default function RestaurateurLayout({ children }: { children: React.React
 
           setUser(navUser);
 
-          // Check if user has restaurateur or admin access
+          // Check if user has restaurateur or admin access via platform role
           // For public paths, allow any authenticated user
           if (!isPublicPath) {
-            const hasAccess =
+            const hasRoleAccess =
               navUser.role === "admin" ||
               navUser.role === "restaurateur" ||
               navUser.role === "organizer"; // Organizers may also manage restaurants
 
-            if (!hasAccess) {
-              setAccessDenied(true);
+            if (hasRoleAccess) {
+              // Immediate access via platform role
+              setHasPlatformAccess(true);
+            } else {
+              // Need to check staff assignments via Convex query
+              setNeedsStaffCheck(true);
             }
           }
         } else {
@@ -163,7 +218,8 @@ export default function RestaurateurLayout({ children }: { children: React.React
     );
   }
 
-  return (
+  // Main dashboard content
+  const dashboardContent = (
     <WorkspaceProvider initialUser={user} initialRole="restaurateur">
       <WorkspaceAccessCheck>
         <SidebarProvider defaultOpen={true}>
@@ -177,5 +233,26 @@ export default function RestaurateurLayout({ children }: { children: React.React
         </SidebarProvider>
       </WorkspaceAccessCheck>
     </WorkspaceProvider>
+  );
+
+  // If user has platform access (admin/restaurateur/organizer), render directly
+  if (hasPlatformAccess) {
+    return dashboardContent;
+  }
+
+  // If user needs staff check, wrap with StaffAccessGate
+  if (needsStaffCheck) {
+    return (
+      <StaffAccessGate onAccessDenied={handleAccessDenied}>
+        {dashboardContent}
+      </StaffAccessGate>
+    );
+  }
+
+  // Fallback - should not reach here, but show loading just in case
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+    </div>
   );
 }

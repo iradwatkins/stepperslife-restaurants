@@ -134,6 +134,11 @@ export const create = mutation({
     price: v.number(),
     imageUrl: v.optional(v.string()),
     sortOrder: v.number(),
+    // Dietary tags
+    isVegetarian: v.optional(v.boolean()),
+    isVegan: v.optional(v.boolean()),
+    isGlutenFree: v.optional(v.boolean()),
+    isSpicy: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Validate inputs
@@ -177,6 +182,11 @@ export const create = mutation({
       name: args.name.trim(),
       description: args.description?.trim(),
       isAvailable: true,
+      // Dietary tags default to false if not provided
+      isVegetarian: args.isVegetarian ?? false,
+      isVegan: args.isVegan ?? false,
+      isGlutenFree: args.isGlutenFree ?? false,
+      isSpicy: args.isSpicy ?? false,
       createdAt: now,
       updatedAt: now,
     });
@@ -194,6 +204,11 @@ export const update = mutation({
     categoryId: v.optional(v.id("menuCategories")),
     isAvailable: v.optional(v.boolean()),
     sortOrder: v.optional(v.number()),
+    // Dietary tags
+    isVegetarian: v.optional(v.boolean()),
+    isVegan: v.optional(v.boolean()),
+    isGlutenFree: v.optional(v.boolean()),
+    isSpicy: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Validate inputs if provided
@@ -342,6 +357,11 @@ export const duplicate = mutation({
       imageUrl: item.imageUrl,
       sortOrder: item.sortOrder + 1,
       isAvailable: false, // Start as unavailable so they can review before publishing
+      // Copy dietary tags
+      isVegetarian: item.isVegetarian ?? false,
+      isVegan: item.isVegan ?? false,
+      isGlutenFree: item.isGlutenFree ?? false,
+      isSpicy: item.isSpicy ?? false,
       createdAt: now,
       updatedAt: now,
     });
@@ -424,6 +444,11 @@ export const createInternal = internalMutation({
     price: v.number(),
     imageUrl: v.optional(v.string()),
     sortOrder: v.number(),
+    // Dietary tags
+    isVegetarian: v.optional(v.boolean()),
+    isVegan: v.optional(v.boolean()),
+    isGlutenFree: v.optional(v.boolean()),
+    isSpicy: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -432,6 +457,11 @@ export const createInternal = internalMutation({
       name: args.name.trim(),
       description: args.description?.trim(),
       isAvailable: true,
+      // Dietary tags default to false if not provided
+      isVegetarian: args.isVegetarian ?? false,
+      isVegan: args.isVegan ?? false,
+      isGlutenFree: args.isGlutenFree ?? false,
+      isSpicy: args.isSpicy ?? false,
       createdAt: now,
       updatedAt: now,
     });
@@ -449,6 +479,11 @@ export const updateInternal = internalMutation({
     categoryId: v.optional(v.id("menuCategories")),
     isAvailable: v.optional(v.boolean()),
     sortOrder: v.optional(v.number()),
+    // Dietary tags
+    isVegetarian: v.optional(v.boolean()),
+    isVegan: v.optional(v.boolean()),
+    isGlutenFree: v.optional(v.boolean()),
+    isSpicy: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;

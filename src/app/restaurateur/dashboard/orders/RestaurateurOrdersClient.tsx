@@ -85,11 +85,8 @@ export default function RestaurateurOrdersClient() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const isFirstLoadRef = useRef(true);
 
-  // Get restaurants owned by user
-  const restaurants = useQuery(
-    api.restaurants.getByOwner,
-    user?._id ? { ownerId: user._id as Id<"users"> } : "skip"
-  );
+  // Get all restaurants the user has access to (owned + staff assignments)
+  const accessibleRestaurants = useQuery(api.restaurantStaff.getMyAccessibleRestaurants);
 
   // Get orders for selected restaurant
   const orders = useQuery(
@@ -256,8 +253,8 @@ export default function RestaurateurOrdersClient() {
     );
   }
 
-  // No restaurants
-  if (restaurants && restaurants.length === 0) {
+  // No restaurants (no owned or staff assignments)
+  if (accessibleRestaurants && accessibleRestaurants.length === 0) {
     return (
       <>
         <PublicHeader />
@@ -287,8 +284,8 @@ export default function RestaurateurOrdersClient() {
   }
 
   // Auto-select first restaurant if none selected
-  if (restaurants && restaurants.length > 0 && !selectedRestaurant) {
-    setSelectedRestaurant(restaurants[0]._id);
+  if (accessibleRestaurants && accessibleRestaurants.length > 0 && !selectedRestaurant) {
+    setSelectedRestaurant(accessibleRestaurants[0].restaurant._id);
   }
 
   const handleStatusUpdate = async (orderId: Id<"foodOrders">, newStatus: OrderStatus) => {
@@ -385,7 +382,7 @@ export default function RestaurateurOrdersClient() {
 
         <div className="container mx-auto px-4 py-6">
           {/* Restaurant Selector */}
-          {restaurants && restaurants.length > 1 && (
+          {accessibleRestaurants && accessibleRestaurants.length > 1 && (
             <div className="mb-6">
               <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Select Restaurant
@@ -395,9 +392,9 @@ export default function RestaurateurOrdersClient() {
                 onChange={(e) => setSelectedRestaurant(e.target.value)}
                 className="w-full max-w-xs px-4 py-2 bg-card border border-input rounded-lg"
               >
-                {restaurants.map((r) => (
-                  <option key={r._id} value={r._id}>
-                    {r.name}
+                {accessibleRestaurants.map((item) => (
+                  <option key={item.restaurant._id} value={item.restaurant._id}>
+                    {item.restaurant.name} {item.role !== "OWNER" ? `(${item.role === "RESTAURANT_MANAGER" ? "Manager" : "Staff"})` : ""}
                   </option>
                 ))}
               </select>

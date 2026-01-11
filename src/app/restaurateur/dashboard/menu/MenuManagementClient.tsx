@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImageUpload } from "@/components/ui/ImageUpload";
+import { Switch } from "@/components/ui/switch";
 import {
   Plus,
   Pencil,
@@ -59,6 +60,10 @@ interface ItemFormData {
   price: string;
   categoryId: string;
   imageUrl: string;
+  isVegetarian: boolean;
+  isVegan: boolean;
+  isGlutenFree: boolean;
+  isSpicy: boolean;
 }
 
 // Define a type for menu item from the query
@@ -75,6 +80,11 @@ type MenuItem = {
   restaurantId: Id<"restaurants">;
   createdAt: number;
   updatedAt: number;
+  // Dietary tags
+  isVegetarian?: boolean;
+  isVegan?: boolean;
+  isGlutenFree?: boolean;
+  isSpicy?: boolean;
 };
 
 // Sortable menu item component
@@ -134,7 +144,30 @@ function SortableMenuItem({
           />
         )}
         <div>
-          <p className="font-medium">{item.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-medium">{item.name}</p>
+            {/* Dietary badges */}
+            {item.isVegetarian && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" title="Vegetarian">
+                V
+              </span>
+            )}
+            {item.isVegan && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" title="Vegan">
+                VG
+              </span>
+            )}
+            {item.isGlutenFree && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" title="Gluten-Free">
+                GF
+              </span>
+            )}
+            {item.isSpicy && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] rounded bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" title="Spicy">
+                🌶️
+              </span>
+            )}
+          </div>
           {item.description && (
             <p className="text-sm text-muted-foreground line-clamp-1">
               {item.description}
@@ -211,7 +244,30 @@ function MenuItemOverlay({ item }: { item: MenuItem }) {
           />
         )}
         <div>
-          <p className="font-medium">{item.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-medium">{item.name}</p>
+            {/* Dietary badges */}
+            {item.isVegetarian && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" title="Vegetarian">
+                V
+              </span>
+            )}
+            {item.isVegan && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" title="Vegan">
+                VG
+              </span>
+            )}
+            {item.isGlutenFree && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" title="Gluten-Free">
+                GF
+              </span>
+            )}
+            {item.isSpicy && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] rounded bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" title="Spicy">
+                🌶️
+              </span>
+            )}
+          </div>
           {item.description && (
             <p className="text-sm text-muted-foreground line-clamp-1">
               {item.description}
@@ -276,7 +332,7 @@ export default function MenuManagementClient() {
   const [editingCategory, setEditingCategory] = useState<Id<"menuCategories"> | null>(null);
   const [editingItem, setEditingItem] = useState<Id<"menuItems"> | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryFormData>({ name: "", description: "" });
-  const [itemForm, setItemForm] = useState<ItemFormData>({ name: "", description: "", price: "", categoryId: "", imageUrl: "" });
+  const [itemForm, setItemForm] = useState<ItemFormData>({ name: "", description: "", price: "", categoryId: "", imageUrl: "", isVegetarian: false, isVegan: false, isGlutenFree: false, isSpicy: false });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [duplicatingId, setDuplicatingId] = useState<Id<"menuItems"> | null>(null);
@@ -433,7 +489,7 @@ export default function MenuManagementClient() {
   };
 
   const handleAddItem = (categoryId?: Id<"menuCategories">) => {
-    setItemForm({ name: "", description: "", price: "", categoryId: categoryId || "", imageUrl: "" });
+    setItemForm({ name: "", description: "", price: "", categoryId: categoryId || "", imageUrl: "", isVegetarian: false, isVegan: false, isGlutenFree: false, isSpicy: false });
     setEditingItem(null);
     setShowItemForm(true);
     setError("");
@@ -446,6 +502,10 @@ export default function MenuManagementClient() {
       price: (item.price / 100).toFixed(2),
       categoryId: item.categoryId || "",
       imageUrl: item.imageUrl || "",
+      isVegetarian: item.isVegetarian ?? false,
+      isVegan: item.isVegan ?? false,
+      isGlutenFree: item.isGlutenFree ?? false,
+      isSpicy: item.isSpicy ?? false,
     });
     setEditingItem(item._id);
     setShowItemForm(true);
@@ -477,6 +537,10 @@ export default function MenuManagementClient() {
           price: priceInCents,
           categoryId: itemForm.categoryId ? (itemForm.categoryId as Id<"menuCategories">) : undefined,
           imageUrl: itemForm.imageUrl || undefined,
+          isVegetarian: itemForm.isVegetarian,
+          isVegan: itemForm.isVegan,
+          isGlutenFree: itemForm.isGlutenFree,
+          isSpicy: itemForm.isSpicy,
         });
       } else {
         const categoryItems = itemForm.categoryId
@@ -491,10 +555,14 @@ export default function MenuManagementClient() {
           categoryId: itemForm.categoryId ? (itemForm.categoryId as Id<"menuCategories">) : undefined,
           sortOrder: categoryItems,
           imageUrl: itemForm.imageUrl || undefined,
+          isVegetarian: itemForm.isVegetarian,
+          isVegan: itemForm.isVegan,
+          isGlutenFree: itemForm.isGlutenFree,
+          isSpicy: itemForm.isSpicy,
         });
       }
       setShowItemForm(false);
-      setItemForm({ name: "", description: "", price: "", categoryId: "", imageUrl: "" });
+      setItemForm({ name: "", description: "", price: "", categoryId: "", imageUrl: "", isVegetarian: false, isVegan: false, isGlutenFree: false, isSpicy: false });
       setEditingItem(null);
     } catch (err: any) {
       setError(err.message || "Failed to save item");
@@ -960,6 +1028,53 @@ export default function MenuManagementClient() {
                     onImageUploaded={(url) => setItemForm({ ...itemForm, imageUrl: url })}
                     onImageRemoved={() => setItemForm({ ...itemForm, imageUrl: "" })}
                   />
+                </div>
+
+                {/* Dietary Tags */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">Dietary Tags</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center justify-between p-2 rounded-lg border bg-background">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🥬</span>
+                        <span className="text-sm">Vegetarian</span>
+                      </div>
+                      <Switch
+                        checked={itemForm.isVegetarian}
+                        onCheckedChange={(checked) => setItemForm({ ...itemForm, isVegetarian: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-2 rounded-lg border bg-background">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🌱</span>
+                        <span className="text-sm">Vegan</span>
+                      </div>
+                      <Switch
+                        checked={itemForm.isVegan}
+                        onCheckedChange={(checked) => setItemForm({ ...itemForm, isVegan: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-2 rounded-lg border bg-background">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🌾</span>
+                        <span className="text-sm">Gluten-Free</span>
+                      </div>
+                      <Switch
+                        checked={itemForm.isGlutenFree}
+                        onCheckedChange={(checked) => setItemForm({ ...itemForm, isGlutenFree: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-2 rounded-lg border bg-background">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🌶️</span>
+                        <span className="text-sm">Spicy</span>
+                      </div>
+                      <Switch
+                        checked={itemForm.isSpicy}
+                        onCheckedChange={(checked) => setItemForm({ ...itemForm, isSpicy: checked })}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {error && (

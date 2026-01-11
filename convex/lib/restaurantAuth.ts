@@ -336,19 +336,74 @@ export async function canManageStaff(
 }
 
 /**
- * Get all restaurants that a user has access to.
- * Includes owned restaurants and staff assignments.
+ * Check if user can manage restaurant hours.
+ * Requires RESTAURANT_MANAGER or higher, or custom permission.
  *
  * @param ctx - Query or mutation context
- * @returns Array of restaurants with user's role for each
+ * @param restaurantId - The restaurant to check
+ * @returns true if user can manage hours
+ */
+export async function canManageHours(
+  ctx: QueryCtx | MutationCtx,
+  restaurantId: Id<"restaurants">
+): Promise<boolean> {
+  const access = await getRestaurantAccess(ctx, restaurantId);
+  if (!access) return false;
+
+  // Owner and Manager can manage hours by default
+  if (access.role === "OWNER" || access.role === "RESTAURANT_MANAGER") {
+    return true;
+  }
+
+  // Check for custom permission override for STAFF
+  if (access.role === "RESTAURANT_STAFF") {
+    const staffRecord = await ctx.db
+      .query("restaurantStaff")
+      .withIndex("by_restaurant_user", (q) =>
+        q.eq("restaurantId", restaurantId).eq("userId", access.user._id)
+      )
+      .first();
+
+    return staffRecord?.permissions?.canManageHours === true;
+  }
+
+  return false;
+}
+
+/**
+ * Staff permissions type for frontend consumption
+ */
+export interface StaffPermissions {
+  canManageMenu?: boolean;
+  canManageHours?: boolean;
+  canManageOrders?: boolean;
+  canViewAnalytics?: boolean;
+  canManageSettings?: boolean;
+}
+
+/**
+ * Result type for getMyRestaurants including permissions
+ */
+export interface RestaurantAccessInfo {
+  restaurant: Doc<"restaurants">;
+  role: RestaurantRole;
+  permissions?: StaffPermissions;
+}
+
+/**
+ * Get all restaurants that a user has access to.
+ * Includes owned restaurants and staff assignments with permissions.
+ *
+ * @param ctx - Query or mutation context
+ * @returns Array of restaurants with user's role and permissions for each
  */
 export async function getMyRestaurants(
   ctx: QueryCtx | MutationCtx
-): Promise<Array<{ restaurant: Doc<"restaurants">; role: RestaurantRole }>> {
+): Promise<RestaurantAccessInfo[]> {
   const user = await getCurrentUser(ctx);
-  const results: Array<{ restaurant: Doc<"restaurants">; role: RestaurantRole }> = [];
+  const results: RestaurantAccessInfo[] = [];
 
-  // Admin sees all active restaurants
+  // Admin sees all active restaurants (full permissions implied)
   if (user.role === "admin") {
     const allRestaurants = await ctx.db
       .query("restaurants")
@@ -358,6 +413,7 @@ export async function getMyRestaurants(
     return allRestaurants.map((restaurant) => ({
       restaurant,
       role: "OWNER" as RestaurantRole,
+      // Owner/Admin has all permissions implicitly
     }));
   }
 
@@ -381,7 +437,11 @@ export async function getMyRestaurants(
   for (const staff of staffRecords) {
     const restaurant = await ctx.db.get(staff.restaurantId);
     if (restaurant && !results.some((r) => r.restaurant._id === restaurant._id)) {
-      results.push({ restaurant, role: staff.role as RestaurantRole });
+      results.push({
+        restaurant,
+        role: staff.role as RestaurantRole,
+        permissions: staff.permissions as StaffPermissions | undefined,
+      });
     }
   }
 

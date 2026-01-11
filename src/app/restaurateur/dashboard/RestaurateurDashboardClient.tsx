@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -19,12 +20,143 @@ import {
   ArrowRight,
   MapPin,
   Camera,
+  type LucideIcon,
 } from "lucide-react";
+
+// Types for role and permissions
+type RestaurantRole = "OWNER" | "RESTAURANT_MANAGER" | "RESTAURANT_STAFF";
+
+interface StaffPermissions {
+  canManageMenu?: boolean;
+  canManageHours?: boolean;
+  canManageOrders?: boolean;
+  canViewAnalytics?: boolean;
+  canManageSettings?: boolean;
+}
+
+interface DashboardItem {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  href: string;
+  comingSoon: boolean;
+}
+
+/**
+ * Determines which dashboard items a user can see based on their role and permissions.
+ *
+ * Permission rules:
+ * - Owner: sees everything
+ * - Manager: sees everything EXCEPT Settings and Locations
+ * - Staff: sees only what their permissions allow (default: Orders only)
+ */
+function getVisibleDashboardItems(
+  allItems: DashboardItem[],
+  role: RestaurantRole,
+  permissions?: StaffPermissions
+): DashboardItem[] {
+  // Owner sees everything
+  if (role === "OWNER") {
+    return allItems;
+  }
+
+  // Manager sees everything except Settings and Locations
+  if (role === "RESTAURANT_MANAGER") {
+    return allItems.filter(
+      (item) => item.title !== "Settings" && item.title !== "Locations"
+    );
+  }
+
+  // Staff sees based on permissions
+  if (role === "RESTAURANT_STAFF") {
+    return allItems.filter((item) => {
+      switch (item.title) {
+        case "Orders":
+          // Staff always has order access (or based on canManageOrders)
+          return permissions?.canManageOrders !== false;
+        case "Menu":
+        case "Photos":
+          return permissions?.canManageMenu === true;
+        case "Analytics":
+          return permissions?.canViewAnalytics === true;
+        case "Hours":
+          return permissions?.canManageHours === true;
+        case "Staff":
+          // Staff cannot manage other staff
+          return false;
+        case "Settings":
+        case "Locations":
+          // Only Owner can access these
+          return false;
+        default:
+          return false;
+      }
+    });
+  }
+
+  // Fallback: show nothing
+  return [];
+}
+
+/**
+ * Determines which quick actions a user can see based on their role and permissions.
+ */
+function getVisibleQuickActions(
+  role: RestaurantRole,
+  permissions?: StaffPermissions
+): {
+  showOrders: boolean;
+  showMenu: boolean;
+  showPhotos: boolean;
+  showLocations: boolean;
+  showStaff: boolean;
+  showSetupGuide: boolean;
+} {
+  if (role === "OWNER") {
+    return {
+      showOrders: true,
+      showMenu: true,
+      showPhotos: true,
+      showLocations: true,
+      showStaff: true,
+      showSetupGuide: true,
+    };
+  }
+
+  if (role === "RESTAURANT_MANAGER") {
+    return {
+      showOrders: true,
+      showMenu: true,
+      showPhotos: true,
+      showLocations: false,
+      showStaff: true,
+      showSetupGuide: true,
+    };
+  }
+
+  // Staff
+  return {
+    showOrders: permissions?.canManageOrders !== false,
+    showMenu: permissions?.canManageMenu === true,
+    showPhotos: permissions?.canManageMenu === true,
+    showLocations: false,
+    showStaff: false,
+    showSetupGuide: false,
+  };
+}
 
 export default function RestaurateurDashboardClient() {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const myRestaurants = useQuery(api.restaurants.getMyRestaurants);
-  const hasRestaurant = myRestaurants && myRestaurants.length > 0;
+  // Use getMyAccessibleRestaurants to include both owned restaurants AND staff assignments
+  const accessibleRestaurants = useQuery(api.restaurantStaff.getMyAccessibleRestaurants);
+  const hasRestaurant = accessibleRestaurants && accessibleRestaurants.length > 0;
+  // Extract first restaurant for components that need it (restaurant object is nested)
+  const firstRestaurantAccess = hasRestaurant ? accessibleRestaurants[0] : null;
+  const firstRestaurant = firstRestaurantAccess?.restaurant ?? null;
+
+  // Get user's role and permissions for the selected restaurant
+  const userRole = firstRestaurantAccess?.role as RestaurantRole | undefined;
+  const userPermissions = firstRestaurantAccess?.permissions as StaffPermissions | undefined;
 
   // Loading state
   if (isLoading) {
@@ -62,65 +194,87 @@ export default function RestaurateurDashboardClient() {
     );
   }
 
-  // Dashboard items
-  const dashboardItems = [
-    {
-      icon: ClipboardList,
-      title: "Orders",
-      description: "View and manage incoming orders",
-      href: "/restaurateur/dashboard/orders",
-      comingSoon: false,
-    },
-    {
-      icon: Utensils,
-      title: "Menu",
-      description: "Edit your menu items and prices",
-      href: "/restaurateur/dashboard/menu",
-      comingSoon: false,
-    },
-    {
-      icon: Camera,
-      title: "Photos",
-      description: "Upload logo and cover images",
-      href: "/restaurateur/dashboard/photos",
-      comingSoon: false,
-    },
-    {
-      icon: MapPin,
-      title: "Locations",
-      description: "Manage your restaurant locations",
-      href: "/restaurateur/dashboard/locations",
-      comingSoon: false,
-    },
-    {
-      icon: BarChart3,
-      title: "Analytics",
-      description: "Track your sales and performance",
-      href: "/restaurateur/dashboard/analytics",
-      comingSoon: false,
-    },
-    {
-      icon: Clock,
-      title: "Hours",
-      description: "Set your operating hours",
-      href: "/restaurateur/dashboard/hours",
-      comingSoon: false,
-    },
-    {
-      icon: Users,
-      title: "Staff",
-      description: "Manage your team members",
-      href: "/restaurateur/dashboard/staff",
-      comingSoon: false,
-    },
-    {
-      icon: Settings,
-      title: "Settings",
-      description: "Manage restaurant settings",
-      href: "/restaurateur/dashboard/settings",
-      comingSoon: false,
-    },
-  ];
+  // All dashboard items (unfiltered)
+  const allDashboardItems: DashboardItem[] = useMemo(
+    () => [
+      {
+        icon: ClipboardList,
+        title: "Orders",
+        description: "View and manage incoming orders",
+        href: "/restaurateur/dashboard/orders",
+        comingSoon: false,
+      },
+      {
+        icon: Utensils,
+        title: "Menu",
+        description: "Edit your menu items and prices",
+        href: "/restaurateur/dashboard/menu",
+        comingSoon: false,
+      },
+      {
+        icon: Camera,
+        title: "Photos",
+        description: "Upload logo and cover images",
+        href: "/restaurateur/dashboard/photos",
+        comingSoon: false,
+      },
+      {
+        icon: MapPin,
+        title: "Locations",
+        description: "Manage your restaurant locations",
+        href: "/restaurateur/dashboard/locations",
+        comingSoon: false,
+      },
+      {
+        icon: BarChart3,
+        title: "Analytics",
+        description: "Track your sales and performance",
+        href: "/restaurateur/dashboard/analytics",
+        comingSoon: false,
+      },
+      {
+        icon: Clock,
+        title: "Hours",
+        description: "Set your operating hours",
+        href: "/restaurateur/dashboard/hours",
+        comingSoon: false,
+      },
+      {
+        icon: Users,
+        title: "Staff",
+        description: "Manage your team members",
+        href: "/restaurateur/dashboard/staff",
+        comingSoon: false,
+      },
+      {
+        icon: Settings,
+        title: "Settings",
+        description: "Manage restaurant settings",
+        href: "/restaurateur/dashboard/settings",
+        comingSoon: false,
+      },
+    ],
+    []
+  );
+
+  // Filter dashboard items based on user's role and permissions
+  const visibleDashboardItems = useMemo(() => {
+    if (!userRole) {
+      // No role yet (loading or no restaurant) - show all items
+      // This allows non-staff users to see the dashboard structure
+      return allDashboardItems;
+    }
+    return getVisibleDashboardItems(allDashboardItems, userRole, userPermissions);
+  }, [allDashboardItems, userRole, userPermissions]);
+
+  // Get visible quick actions
+  const quickActions = useMemo(() => {
+    if (!userRole) {
+      // Default to owner-level access when no role (e.g., for owners)
+      return getVisibleQuickActions("OWNER");
+    }
+    return getVisibleQuickActions(userRole, userPermissions);
+  }, [userRole, userPermissions]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -146,7 +300,7 @@ export default function RestaurateurDashboardClient() {
           <div className="space-y-6 mb-8">
             {/* Onboarding Progress - shown until setup is complete */}
             <OnboardingProgress
-              restaurantId={myRestaurants[0]._id}
+              restaurantId={firstRestaurant!._id}
               dismissible={true}
             />
 
@@ -180,7 +334,7 @@ export default function RestaurateurDashboardClient() {
 
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {dashboardItems.map((item) => {
+          {visibleDashboardItems.map((item) => {
             const Icon = item.icon;
             const CardContent = (
               <div className="flex items-start gap-4">
@@ -230,42 +384,54 @@ export default function RestaurateurDashboardClient() {
           <div className="flex flex-wrap gap-4">
             {hasRestaurant ? (
               <>
-                <Link
-                  href="/restaurateur/dashboard/orders"
-                  className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
-                >
-                  View Orders
-                </Link>
-                <Link
-                  href="/restaurateur/dashboard/menu"
-                  className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
-                >
-                  Edit Menu
-                </Link>
-                <Link
-                  href="/restaurateur/dashboard/photos"
-                  className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
-                >
-                  Manage Photos
-                </Link>
-                <Link
-                  href="/restaurateur/dashboard/locations"
-                  className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
-                >
-                  Manage Locations
-                </Link>
-                <Link
-                  href="/restaurateur/dashboard/staff"
-                  className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
-                >
-                  Manage Staff
-                </Link>
-                <Link
-                  href="/restaurateur/onboarding"
-                  className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
-                >
-                  Setup Guide
-                </Link>
+                {quickActions.showOrders && (
+                  <Link
+                    href="/restaurateur/dashboard/orders"
+                    className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                  >
+                    View Orders
+                  </Link>
+                )}
+                {quickActions.showMenu && (
+                  <Link
+                    href="/restaurateur/dashboard/menu"
+                    className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
+                  >
+                    Edit Menu
+                  </Link>
+                )}
+                {quickActions.showPhotos && (
+                  <Link
+                    href="/restaurateur/dashboard/photos"
+                    className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
+                  >
+                    Manage Photos
+                  </Link>
+                )}
+                {quickActions.showLocations && (
+                  <Link
+                    href="/restaurateur/dashboard/locations"
+                    className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
+                  >
+                    Manage Locations
+                  </Link>
+                )}
+                {quickActions.showStaff && (
+                  <Link
+                    href="/restaurateur/dashboard/staff"
+                    className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
+                  >
+                    Manage Staff
+                  </Link>
+                )}
+                {quickActions.showSetupGuide && (
+                  <Link
+                    href="/restaurateur/onboarding"
+                    className="px-4 py-2 border border-input rounded-lg font-medium hover:bg-muted transition-colors"
+                  >
+                    Setup Guide
+                  </Link>
+                )}
               </>
             ) : (
               <>

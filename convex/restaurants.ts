@@ -144,6 +144,26 @@ export const update = mutation({
     acceptingOrders: v.optional(v.boolean()),
     estimatedPickupTime: v.optional(v.number()),
     isActive: v.optional(v.boolean()),
+    // Stepper-specific fields
+    dressCode: v.optional(v.union(
+      v.literal("casual"),
+      v.literal("smart-casual"),
+      v.literal("upscale"),
+      v.literal("stepping-attire")
+    )),
+    vibeTags: v.optional(v.array(v.string())),
+    groupInfo: v.optional(v.object({
+      maxPartySize: v.optional(v.number()),
+      groupDiscounts: v.optional(v.boolean()),
+      privateRoomAvailable: v.optional(v.boolean()),
+      minimumForGroup: v.optional(v.number()),
+    })),
+    entertainment: v.optional(v.object({
+      hasLiveMusic: v.optional(v.boolean()),
+      hasDJ: v.optional(v.boolean()),
+      musicGenres: v.optional(v.array(v.string())),
+      entertainmentNights: v.optional(v.array(v.string())),
+    })),
   },
   handler: async (ctx, args) => {
     // Verify user has at least MANAGER role for this restaurant
