@@ -59,3 +59,4 @@ test-results/
 
 # UX Audit - Test Account Credentials (DO NOT COMMIT)
 docs/audit/TEST-ACCOUNTS.md
+tsconfig.tsbuildinfo
