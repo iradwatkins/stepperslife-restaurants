@@ -563,3 +563,121 @@ export const reorderMenuCategories = mutation({
     );
   },
 });
+
+// ============================================
+// Admin mutations with secret key auth
+// ============================================
+
+/**
+ * Admin mutation to create a menu category with secret key auth
+ */
+export const adminCreateCategory = mutation({
+  args: {
+    adminSecret: v.string(),
+    restaurantSlug: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    sortOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Verify admin secret
+    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    if (args.adminSecret !== expectedSecret) {
+      throw new Error("Unauthorized: Invalid admin secret");
+    }
+
+    // Find restaurant by slug
+    const restaurant = await ctx.db
+      .query("restaurants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.restaurantSlug))
+      .first();
+
+    if (!restaurant) {
+      throw new Error(`Restaurant with slug "${args.restaurantSlug}" not found`);
+    }
+
+    const now = Date.now();
+    const categoryId = await ctx.db.insert("menuCategories", {
+      restaurantId: restaurant._id,
+      name: args.name.trim(),
+      description: args.description?.trim(),
+      sortOrder: args.sortOrder,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { categoryId, name: args.name };
+  },
+});
+
+/**
+ * Admin mutation to create a menu item with secret key auth
+ */
+export const adminCreateMenuItem = mutation({
+  args: {
+    adminSecret: v.string(),
+    restaurantSlug: v.string(),
+    categoryName: v.optional(v.string()),
+    name: v.string(),
+    description: v.optional(v.string()),
+    price: v.number(),
+    imageUrl: v.optional(v.string()),
+    sortOrder: v.number(),
+    isVegetarian: v.optional(v.boolean()),
+    isVegan: v.optional(v.boolean()),
+    isGlutenFree: v.optional(v.boolean()),
+    isSpicy: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    // Verify admin secret
+    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    if (args.adminSecret !== expectedSecret) {
+      throw new Error("Unauthorized: Invalid admin secret");
+    }
+
+    // Find restaurant by slug
+    const restaurant = await ctx.db
+      .query("restaurants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.restaurantSlug))
+      .first();
+
+    if (!restaurant) {
+      throw new Error(`Restaurant with slug "${args.restaurantSlug}" not found`);
+    }
+
+    // Find category by name if provided
+    let categoryId: Id<"menuCategories"> | undefined;
+    if (args.categoryName) {
+      const categories = await ctx.db
+        .query("menuCategories")
+        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurant._id))
+        .collect();
+
+      const category = categories.find(c => c.name === args.categoryName);
+      if (category) {
+        categoryId = category._id;
+      }
+    }
+
+    const now = Date.now();
+    const menuItemId = await ctx.db.insert("menuItems", {
+      restaurantId: restaurant._id,
+      categoryId,
+      name: args.name.trim(),
+      description: args.description?.trim(),
+      price: args.price,
+      imageUrl: args.imageUrl,
+      sortOrder: args.sortOrder,
+      isAvailable: true,
+      isVegetarian: args.isVegetarian ?? false,
+      isVegan: args.isVegan ?? false,
+      isGlutenFree: args.isGlutenFree ?? false,
+      isSpicy: args.isSpicy ?? false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { menuItemId, name: args.name, categoryId };
+  },
+});
