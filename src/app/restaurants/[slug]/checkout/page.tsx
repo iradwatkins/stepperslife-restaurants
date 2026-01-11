@@ -13,13 +13,14 @@ import Link from "next/link";
 import { Id } from "@/convex/_generated/dataModel";
 import { useFoodCart } from "@/contexts/FoodCartContext";
 import { FoodOrderStripeCheckout } from "@/components/checkout/FoodOrderStripeCheckout";
+import { FoodOrderPayPalCheckout } from "@/components/checkout/FoodOrderPayPalCheckout";
 
 type PickupTimeOption = {
   label: string;
   value: number | "asap";
 };
 
-type PaymentMethod = "card" | "pay_at_pickup";
+type PaymentMethod = "card" | "paypal" | "pay_at_pickup";
 
 // Validation patterns
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -205,8 +206,8 @@ export default function RestaurantCheckoutPage() {
     try {
       validateForm();
 
-      if (paymentMethod === "card") {
-        // For card payments, create a pending order first
+      if (paymentMethod === "card" || paymentMethod === "paypal") {
+        // For card/PayPal payments, create a pending order first
         setIsSubmitting(true);
 
         const orderItems = cartItems.map((item) => ({
@@ -220,7 +221,7 @@ export default function RestaurantCheckoutPage() {
           ? Date.now() + (restaurant.estimatedPickupTime * 60 * 1000)
           : pickupTimeOption;
 
-        // Create pending order
+        // Create pending order with appropriate payment method
         const result = await createOrder({
           restaurantId: restaurant._id,
           customerId: user?._id as Id<"users"> | undefined,
@@ -233,7 +234,7 @@ export default function RestaurantCheckoutPage() {
           total,
           pickupTime,
           specialInstructions: specialInstructions.trim() || undefined,
-          paymentMethod: "stripe",
+          paymentMethod: paymentMethod === "card" ? "stripe" : "paypal",
           paymentStatus: "pending",
         });
 
@@ -347,6 +348,42 @@ export default function RestaurantCheckoutPage() {
     }
   };
 
+  const handlePayPalSuccess = async (result: { paypalOrderId: string }) => {
+    try {
+      // Update order payment status with PayPal order ID
+      if (pendingOrderId) {
+        await updateOrderPayment({
+          orderId: pendingOrderId as Id<"foodOrders">,
+          paymentStatus: "paid",
+          paymentMethod: "paypal",
+          paypalOrderId: result.paypalOrderId,
+        });
+      }
+
+      // Clear the cart
+      clearCart();
+
+      // Save order number to localStorage
+      if (typeof window !== 'undefined' && pendingOrderNumber) {
+        const recentOrders = JSON.parse(localStorage.getItem('recentFoodOrders') || '[]');
+        recentOrders.unshift({
+          orderNumber: pendingOrderNumber,
+          restaurantName: restaurant.name,
+          orderId: pendingOrderId,
+          placedAt: Date.now(),
+        });
+        localStorage.setItem('recentFoodOrders', JSON.stringify(recentOrders.slice(0, 10)));
+      }
+
+      // Redirect to confirmation page
+      router.push(`/restaurants/${slug}/order-confirmation?orderId=${pendingOrderId}`);
+    } catch (err: any) {
+      console.error("Failed to update PayPal payment status:", err);
+      // Still redirect - the payment went through
+      router.push(`/restaurants/${slug}/order-confirmation?orderId=${pendingOrderId}`);
+    }
+  };
+
   const handlePaymentError = (errorMsg: string) => {
     setError(errorMsg);
   };
@@ -388,18 +425,33 @@ export default function RestaurantCheckoutPage() {
               </p>
             </div>
 
-            <FoodOrderStripeCheckout
-              total={total}
-              orderId={pendingOrderId}
-              orderNumber={pendingOrderNumber || ""}
-              restaurantId={restaurant._id}
-              restaurantName={restaurant.name}
-              customerName={customerName}
-              customerEmail={customerEmail}
-              onPaymentSuccess={handlePaymentSuccess}
-              onPaymentError={handlePaymentError}
-              onBack={handleBackFromPayment}
-            />
+            {paymentMethod === "paypal" ? (
+              <FoodOrderPayPalCheckout
+                total={total}
+                orderId={pendingOrderId}
+                orderNumber={pendingOrderNumber || ""}
+                restaurantId={restaurant._id}
+                restaurantName={restaurant.name}
+                customerName={customerName}
+                customerEmail={customerEmail}
+                onPaymentSuccess={handlePayPalSuccess}
+                onPaymentError={handlePaymentError}
+                onBack={handleBackFromPayment}
+              />
+            ) : (
+              <FoodOrderStripeCheckout
+                total={total}
+                orderId={pendingOrderId}
+                orderNumber={pendingOrderNumber || ""}
+                restaurantId={restaurant._id}
+                restaurantName={restaurant.name}
+                customerName={customerName}
+                customerEmail={customerEmail}
+                onPaymentSuccess={handlePaymentSuccess}
+                onPaymentError={handlePaymentError}
+                onBack={handleBackFromPayment}
+              />
+            )}
           </div>
         </div>
         <PublicFooter />
@@ -430,7 +482,7 @@ export default function RestaurantCheckoutPage() {
           <div className="grid md:grid-cols-2 gap-8">
             {/* Order Form */}
             <div>
-              <form onSubmit={paymentMethod === "card" ? handleProceedToPayment : handleSubmitOrder} className="space-y-6">
+              <form onSubmit={paymentMethod === "card" || paymentMethod === "paypal" ? handleProceedToPayment : handleSubmitOrder} className="space-y-6">
                 <div className="bg-card rounded-lg border p-6">
                   <h2 className="text-xl font-semibold mb-4">Contact Information</h2>
 
@@ -545,6 +597,32 @@ export default function RestaurantCheckoutPage() {
                       )}
                     </button>
 
+                    {/* PayPal Option */}
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("paypal")}
+                      className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-colors text-left ${
+                        paymentMethod === "paypal"
+                          ? "border-primary bg-primary/5 dark:bg-primary/20"
+                          : "border-border hover:border-primary/30"
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        paymentMethod === "paypal" ? "bg-primary text-white" : "bg-muted"
+                      }`}>
+                        <Wallet className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">PayPal</p>
+                        <p className="text-sm text-muted-foreground">
+                          Pay with PayPal balance or linked cards
+                        </p>
+                      </div>
+                      {paymentMethod === "paypal" && (
+                        <CheckCircle className="h-5 w-5 text-primary" />
+                      )}
+                    </button>
+
                     {/* Pay at Pickup Option */}
                     <button
                       type="button"
@@ -589,7 +667,7 @@ export default function RestaurantCheckoutPage() {
                       <Loader2 className="h-5 w-5 animate-spin" />
                       Processing...
                     </>
-                  ) : paymentMethod === "card" ? (
+                  ) : paymentMethod === "card" || paymentMethod === "paypal" ? (
                     `Continue to Payment - $${(total / 100).toFixed(2)}`
                   ) : (
                     `Place Order - $${(total / 100).toFixed(2)}`

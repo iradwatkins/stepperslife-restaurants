@@ -590,6 +590,7 @@ export const updatePaymentStatus = mutation({
     paymentStatus: v.string(),
     paymentMethod: v.optional(v.string()),
     stripePaymentIntentId: v.optional(v.string()),
+    paypalOrderId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Validate payment status
@@ -617,6 +618,7 @@ export const updatePaymentStatus = mutation({
         };
         if (args.paymentMethod) updateData.paymentMethod = args.paymentMethod;
         if (args.stripePaymentIntentId) updateData.stripePaymentIntentId = args.stripePaymentIntentId;
+        if (args.paypalOrderId) updateData.paypalOrderId = args.paypalOrderId;
 
         return await ctx.db.patch(args.orderId, updateData);
       }
@@ -630,6 +632,7 @@ export const updatePaymentStatus = mutation({
     };
     if (args.paymentMethod) updateData.paymentMethod = args.paymentMethod;
     if (args.stripePaymentIntentId) updateData.stripePaymentIntentId = args.stripePaymentIntentId;
+    if (args.paypalOrderId) updateData.paypalOrderId = args.paypalOrderId;
 
     return await ctx.db.patch(args.orderId, updateData);
   },

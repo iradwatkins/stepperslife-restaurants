@@ -1854,6 +1854,7 @@ export default defineSchema({
     paymentStatus: v.string(),
     paymentMethod: v.optional(v.string()),
     stripePaymentIntentId: v.optional(v.string()),
+    paypalOrderId: v.optional(v.string()),
     placedAt: v.number(),
     readyAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),

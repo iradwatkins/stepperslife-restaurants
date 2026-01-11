@@ -3,11 +3,10 @@
 import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
-declare global {
-  interface Window {
-    paypal?: any;
-  }
-}
+// Using (window as PayPalWindow).paypal which is set by the PayPal SDK script
+// Type assertion is needed since we're loading the SDK dynamically
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PayPalWindow = Window & { paypal?: any };
 
 interface PayPalPaymentProps {
   amount: number; // Total amount in cents
@@ -44,7 +43,7 @@ export function PayPalPayment({
     }
 
     // Check if PayPal SDK is already loaded
-    if (window.paypal) {
+    if ((window as PayPalWindow).paypal) {
       renderPayPalButtons();
       return;
     }
@@ -72,7 +71,7 @@ export function PayPalPayment({
   }, [amount, orderId]);
 
   const renderPayPalButtons = () => {
-    if (!window.paypal) {
+    if (!(window as PayPalWindow).paypal) {
       setIsLoading(false);
       return;
     }
@@ -83,7 +82,7 @@ export function PayPalPayment({
       container.innerHTML = "";
     }
 
-    window.paypal
+    (window as PayPalWindow).paypal
       .Buttons({
         style: {
           layout: "vertical",
