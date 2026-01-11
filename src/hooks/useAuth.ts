@@ -7,7 +7,7 @@ interface User {
   _id: string;
   email: string;
   name?: string;
-  role?: "admin" | "organizer" | "user";
+  role?: "admin" | "organizer" | "instructor" | "restaurateur" | "vendor" | "user";
   image?: string;
 }
 

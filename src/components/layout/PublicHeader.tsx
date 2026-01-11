@@ -309,7 +309,7 @@ export function PublicHeader({
                         )}
 
                         {/* Instructor links - for instructors */}
-                        {(user?.role as string) === "instructor" && (
+                        {user?.role === "instructor" && (
                           <>
                             <div className="border-t border-border my-1" />
                             <Link
@@ -325,7 +325,7 @@ export function PublicHeader({
                         )}
 
                         {/* Vendor links - for vendors/admins */}
-                        {((user?.role as string) === "vendor" || user?.role === "admin") && (
+                        {(user?.role === "vendor" || user?.role === "admin") && (
                           <>
                             <div className="border-t border-border my-1" />
                             <Link
@@ -533,7 +533,7 @@ export function PublicHeader({
                   )}
 
                   {/* Instructor links - for instructors */}
-                  {(user?.role as string) === "instructor" && (
+                  {user?.role === "instructor" && (
                     <>
                       <div className="border-t border-border my-2" />
                       <Link
@@ -548,7 +548,7 @@ export function PublicHeader({
                   )}
 
                   {/* Vendor links - for vendors/admins */}
-                  {((user?.role as string) === "vendor" || user?.role === "admin") && (
+                  {(user?.role === "vendor" || user?.role === "admin") && (
                     <>
                       <div className="border-t border-border my-2" />
                       <Link
