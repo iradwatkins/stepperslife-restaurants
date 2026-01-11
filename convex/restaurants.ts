@@ -1146,3 +1146,51 @@ export const updateHoursInternal = internalMutation({
     return { success: true, restaurantId: restaurant._id, name: restaurant.name };
   },
 });
+
+// Admin mutation to set restaurant hours with secret key auth
+// Can be called from API routes
+export const adminSetHours = mutation({
+  args: {
+    adminSecret: v.string(),
+    slug: v.string(),
+    operatingHours: v.object({
+      monday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+      tuesday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+      wednesday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+      thursday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+      friday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+      saturday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+      sunday: v.optional(v.object({ open: v.string(), close: v.string(), closed: v.optional(v.boolean()) })),
+    }),
+    acceptingOrders: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    // Verify admin secret
+    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    if (args.adminSecret !== expectedSecret) {
+      throw new Error("Unauthorized: Invalid admin secret");
+    }
+
+    const restaurant = await ctx.db
+      .query("restaurants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (!restaurant) {
+      throw new Error(`Restaurant with slug "${args.slug}" not found`);
+    }
+
+    const updates: Record<string, unknown> = {
+      operatingHours: args.operatingHours,
+      updatedAt: Date.now(),
+    };
+
+    if (args.acceptingOrders !== undefined) {
+      updates.acceptingOrders = args.acceptingOrders;
+    }
+
+    await ctx.db.patch(restaurant._id, updates);
+
+    return { success: true, restaurantId: restaurant._id, name: restaurant.name };
+  },
+});
