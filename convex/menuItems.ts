@@ -681,3 +681,55 @@ export const adminCreateMenuItem = mutation({
     return { menuItemId, name: args.name, categoryId };
   },
 });
+
+/**
+ * Admin mutation to update menu item prices with secret key auth
+ */
+export const adminUpdateMenuItem = mutation({
+  args: {
+    adminSecret: v.string(),
+    restaurantSlug: v.string(),
+    itemName: v.string(),
+    price: v.optional(v.number()),
+    description: v.optional(v.string()),
+    isAvailable: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    // Verify admin secret
+    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    if (args.adminSecret !== expectedSecret) {
+      throw new Error("Unauthorized: Invalid admin secret");
+    }
+
+    // Find restaurant by slug
+    const restaurant = await ctx.db
+      .query("restaurants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.restaurantSlug))
+      .first();
+
+    if (!restaurant) {
+      throw new Error(`Restaurant with slug "${args.restaurantSlug}" not found`);
+    }
+
+    // Find menu item by name
+    const menuItems = await ctx.db
+      .query("menuItems")
+      .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurant._id))
+      .collect();
+
+    const item = menuItems.find(i => i.name === args.itemName);
+    if (!item) {
+      throw new Error(`Menu item "${args.itemName}" not found`);
+    }
+
+    // Build update object
+    const updates: Record<string, unknown> = { updatedAt: Date.now() };
+    if (args.price !== undefined) updates.price = args.price;
+    if (args.description !== undefined) updates.description = args.description;
+    if (args.isAvailable !== undefined) updates.isAvailable = args.isAvailable;
+
+    await ctx.db.patch(item._id, updates);
+
+    return { success: true, itemId: item._id, name: item.name };
+  },
+});
