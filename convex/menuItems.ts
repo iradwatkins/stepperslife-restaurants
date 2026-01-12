@@ -733,3 +733,58 @@ export const adminUpdateMenuItem = mutation({
     return { success: true, itemId: item._id, name: item.name };
   },
 });
+
+/**
+ * Admin mutation to delete all menu items for a restaurant
+ */
+export const adminDeleteAllMenuItems = mutation({
+  args: {
+    adminSecret: v.string(),
+    restaurantSlug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Verify admin secret
+    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    if (args.adminSecret !== expectedSecret) {
+      throw new Error("Unauthorized: Invalid admin secret");
+    }
+
+    // Find restaurant by slug
+    const restaurant = await ctx.db
+      .query("restaurants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.restaurantSlug))
+      .first();
+
+    if (!restaurant) {
+      throw new Error(`Restaurant with slug "${args.restaurantSlug}" not found`);
+    }
+
+    // Get all menu items for this restaurant
+    const menuItems = await ctx.db
+      .query("menuItems")
+      .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurant._id))
+      .collect();
+
+    // Delete all menu items
+    for (const item of menuItems) {
+      await ctx.db.delete(item._id);
+    }
+
+    // Get all categories for this restaurant
+    const categories = await ctx.db
+      .query("menuCategories")
+      .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurant._id))
+      .collect();
+
+    // Delete all categories
+    for (const category of categories) {
+      await ctx.db.delete(category._id);
+    }
+
+    return {
+      success: true,
+      deletedItems: menuItems.length,
+      deletedCategories: categories.length
+    };
+  },
+});
