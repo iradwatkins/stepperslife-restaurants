@@ -1,10 +1,11 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { getCurrentUser } from "./lib/auth";
 import { requireRestaurantRole, requireRestaurantOwner, getMyRestaurants } from "./lib/restaurantAuth";
 import { validateEmail, validateRequiredString, validatePhoneNumber } from "./lib/validation";
+import { canAddStaff, type RestaurantPlanTier } from "./lib/restaurantPlans";
 
 // Get staff for a restaurant (requires MANAGER role or higher)
 export const getByRestaurant = query({
@@ -153,6 +154,19 @@ export const inviteStaff = mutation({
     const restaurant = await ctx.db.get(args.restaurantId);
     if (!restaurant) {
       throw new Error("Restaurant not found");
+    }
+
+    // Check subscription plan staff limit
+    const existingStaff = await ctx.db
+      .query("restaurantStaff")
+      .withIndex("by_restaurant", (q) => q.eq("restaurantId", args.restaurantId))
+      .filter((q) => q.neq(q.field("status"), "REMOVED"))
+      .collect();
+
+    const planTier = (restaurant.subscriptionTier || "STARTER") as RestaurantPlanTier;
+    const staffCheck = canAddStaff(planTier, existingStaff.length);
+    if (!staffCheck.allowed) {
+      throw new Error(staffCheck.message || "Staff limit reached for your plan");
     }
 
     // Create staff invitation
@@ -499,11 +513,20 @@ export const acceptInvitationWithNotification = action({
       return { success: true, ownerNotified: false };
     }
 
+    // Get owner email directly for notification (internal use only)
+    const ownerInfo = await ctx.runQuery(internal.restaurantStaff.getOwnerEmailForNotification, {
+      restaurantId: staff.restaurantId,
+    });
+
+    if (!ownerInfo?.email) {
+      return { success: true, ownerNotified: false };
+    }
+
     // Send notification to owner
     const emailResult = await ctx.runAction(
       api.notifications.staffNotifications.sendInvitationAcceptedEmail,
       {
-        ownerEmail: staff.ownerEmail,
+        ownerEmail: ownerInfo.email,
         ownerName: staff.ownerName,
         staffName: staff.name,
         staffRole: staff.role,
@@ -519,24 +542,62 @@ export const acceptInvitationWithNotification = action({
 });
 
 /**
- * Helper query to get staff by ID with restaurant and owner info
+ * Helper query to get staff by ID with restaurant info
+ * Requires authentication and access to the restaurant
  */
 export const getStaffById = query({
   args: { staffId: v.id("restaurantStaff") },
   handler: async (ctx, args) => {
+    // Require authentication
+    const user = await getCurrentUser(ctx);
+
     const staff = await ctx.db.get(args.staffId);
     if (!staff) return null;
 
     const restaurant = await ctx.db.get(staff.restaurantId);
     if (!restaurant) return null;
 
+    // Verify user has access to this restaurant (owner, staff, or admin)
+    const isOwner = restaurant.ownerId === user._id;
+    const isAdmin = user.role === "admin";
+    const isStaffMember = await ctx.db
+      .query("restaurantStaff")
+      .withIndex("by_restaurant_user", (q) =>
+        q.eq("restaurantId", staff.restaurantId).eq("userId", user._id)
+      )
+      .first();
+
+    if (!isOwner && !isAdmin && !isStaffMember) {
+      throw new Error("Not authorized to view this staff member");
+    }
+
     const owner = await ctx.db.get(restaurant.ownerId);
 
     return {
       ...staff,
       restaurantName: restaurant.name,
-      ownerEmail: owner?.email || "",
+      // Only expose owner name, not email (PII protection)
       ownerName: owner?.name || "Restaurant Owner",
+    };
+  },
+});
+
+/**
+ * Internal query to get owner email for notification purposes only
+ * Not exposed to clients - only used internally for sending notifications
+ */
+export const getOwnerEmailForNotification = internalQuery({
+  args: { restaurantId: v.id("restaurants") },
+  handler: async (ctx, args) => {
+    const restaurant = await ctx.db.get(args.restaurantId);
+    if (!restaurant) return null;
+
+    const owner = await ctx.db.get(restaurant.ownerId);
+    if (!owner) return null;
+
+    return {
+      email: owner.email,
+      name: owner.name,
     };
   },
 });

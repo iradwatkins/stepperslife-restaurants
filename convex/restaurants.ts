@@ -759,9 +759,10 @@ export const updateInternal = internalMutation({
 });
 
 /**
- * Admin fix for updating restaurant images (no auth required - for setup/seeding only)
+ * Internal mutation for updating restaurant images (for setup/seeding only)
+ * Not exposed to clients - use update mutation for authenticated changes
  */
-export const fixRestaurantImage = mutation({
+export const fixRestaurantImage = internalMutation({
   args: {
     restaurantId: v.id("restaurants"),
     logoUrl: v.optional(v.string()),
@@ -1165,8 +1166,11 @@ export const adminSetHours = mutation({
     acceptingOrders: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Verify admin secret
-    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    // Verify admin secret - REQUIRES environment variable (no fallback for security)
+    const expectedSecret = process.env.ADMIN_SECRET;
+    if (!expectedSecret) {
+      throw new Error("Server configuration error: ADMIN_SECRET not set");
+    }
     if (args.adminSecret !== expectedSecret) {
       throw new Error("Unauthorized: Invalid admin secret");
     }

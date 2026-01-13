@@ -15,8 +15,15 @@ http.route({
       const body = await request.json();
       const { adminSecret, slug, operatingHours, acceptingOrders } = body;
 
-      // Verify admin secret (use environment variable in production)
-      const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+      // Verify admin secret - REQUIRES environment variable (no fallback for security)
+      const expectedSecret = process.env.ADMIN_SECRET;
+      if (!expectedSecret) {
+        console.error("ADMIN_SECRET environment variable not set");
+        return new Response(JSON.stringify({ error: "Server configuration error" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (adminSecret !== expectedSecret) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
           status: 401,

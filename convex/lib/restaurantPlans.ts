@@ -185,6 +185,31 @@ export function canAddCategory(
 }
 
 /**
+ * Check if a restaurant can add more staff based on their plan
+ */
+export function canAddStaff(
+  planTier: RestaurantPlanTier,
+  currentStaffCount: number
+): { allowed: boolean; limit: number; message?: string } {
+  const plan = RESTAURANT_PLANS[planTier];
+  const limit = plan.features.staffLimit;
+
+  if (limit === -1) {
+    return { allowed: true, limit: -1 };
+  }
+
+  if (currentStaffCount >= limit) {
+    return {
+      allowed: false,
+      limit,
+      message: `You've reached the ${limit} staff member limit for the ${plan.name} plan. Upgrade to add more staff.`,
+    };
+  }
+
+  return { allowed: true, limit };
+}
+
+/**
  * Get the default plan tier for new restaurants
  */
 export function getDefaultPlanTier(): RestaurantPlanTier {

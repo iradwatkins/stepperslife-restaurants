@@ -12,29 +12,7 @@ import {
   getDefaultPlanTier,
   type RestaurantPlanTier
 } from "./lib/restaurantPlans";
-
-// Helper to verify restaurant ownership
-async function verifyRestaurantOwnership(
-  ctx: { db: any; auth: any },
-  restaurantId: Id<"restaurants">
-): Promise<boolean> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) return false;
-
-  // Get user by email from identity
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_email", (q: any) => q.eq("email", identity.email))
-    .first();
-
-  if (!user) return false;
-
-  // Get restaurant and check ownership
-  const restaurant = await ctx.db.get(restaurantId);
-  if (!restaurant) return false;
-
-  return restaurant.ownerId === user._id;
-}
+import { requireRestaurantOwner, requireRestaurantRole } from "./lib/restaurantAuth";
 
 // Get menu categories for restaurant
 export const getCategories = query({
@@ -86,17 +64,8 @@ export const createCategory = mutation({
       validateRequiredString(args.description, "Description", { minLength: 0, maxLength: 500 });
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, args.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
-
-    // Check subscription plan limits
-    const restaurant = await ctx.db.get(args.restaurantId);
-    if (!restaurant) {
-      throw new Error("Restaurant not found");
-    }
+    // Verify ownership (throws if not authorized)
+    const { restaurant } = await requireRestaurantOwner(ctx, args.restaurantId);
 
     // Get current category count
     const existingCategories = await ctx.db
@@ -150,17 +119,8 @@ export const create = mutation({
       validateRequiredString(args.description, "Description", { minLength: 0, maxLength: 1000 });
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, args.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
-
-    // Check subscription plan limits
-    const restaurant = await ctx.db.get(args.restaurantId);
-    if (!restaurant) {
-      throw new Error("Restaurant not found");
-    }
+    // Verify ownership (throws if not authorized)
+    const { restaurant } = await requireRestaurantOwner(ctx, args.restaurantId);
 
     // Get current menu item count
     const existingItems = await ctx.db
@@ -231,11 +191,8 @@ export const update = mutation({
       throw new Error("Menu item not found");
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, menuItem.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, menuItem.restaurantId);
 
     const { id, ...updates } = args;
     return await ctx.db.patch(id, {
@@ -254,11 +211,8 @@ export const toggleAvailability = mutation({
     const item = await ctx.db.get(args.id);
     if (!item) throw new Error("Menu item not found");
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, item.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, item.restaurantId);
 
     return await ctx.db.patch(args.id, {
       isAvailable: !item.isAvailable,
@@ -274,11 +228,8 @@ export const remove = mutation({
     const item = await ctx.db.get(args.id);
     if (!item) throw new Error("Menu item not found");
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, item.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, item.restaurantId);
 
     return await ctx.db.delete(args.id);
   },
@@ -300,11 +251,8 @@ export const updateCategory = mutation({
       throw new Error("Category not found");
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, category.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, category.restaurantId);
 
     const { id, ...updates } = args;
     return await ctx.db.patch(id, {
@@ -321,11 +269,8 @@ export const duplicate = mutation({
     const item = await ctx.db.get(args.id);
     if (!item) throw new Error("Menu item not found");
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, item.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, item.restaurantId);
 
     // Check subscription plan limits
     const restaurant = await ctx.db.get(item.restaurantId);
@@ -378,11 +323,8 @@ export const removeCategory = mutation({
       throw new Error("Category not found");
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, category.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, category.restaurantId);
 
     // Check if there are any items in this category
     const itemsInCategory = await ctx.db
@@ -513,11 +455,8 @@ export const reorderMenuItems = mutation({
       throw new Error("Menu item not found");
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, firstItem.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, firstItem.restaurantId);
 
     // Update all items with their new sort orders
     const now = Date.now();
@@ -548,11 +487,8 @@ export const reorderMenuCategories = mutation({
       throw new Error("Category not found");
     }
 
-    // Verify ownership
-    const isOwner = await verifyRestaurantOwnership(ctx, firstCategory.restaurantId);
-    if (!isOwner) {
-      throw new Error("Unauthorized: You do not own this restaurant");
-    }
+    // Verify ownership (throws if not authorized)
+    await requireRestaurantOwner(ctx, firstCategory.restaurantId);
 
     // Update all categories with their new sort orders
     const now = Date.now();
@@ -580,8 +516,11 @@ export const adminCreateCategory = mutation({
     sortOrder: v.number(),
   },
   handler: async (ctx, args) => {
-    // Verify admin secret
-    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    // Verify admin secret - REQUIRES environment variable (no fallback for security)
+    const expectedSecret = process.env.ADMIN_SECRET;
+    if (!expectedSecret) {
+      throw new Error("Server configuration error: ADMIN_SECRET not set");
+    }
     if (args.adminSecret !== expectedSecret) {
       throw new Error("Unauthorized: Invalid admin secret");
     }
@@ -630,8 +569,11 @@ export const adminCreateMenuItem = mutation({
     isSpicy: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Verify admin secret
-    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    // Verify admin secret - REQUIRES environment variable (no fallback for security)
+    const expectedSecret = process.env.ADMIN_SECRET;
+    if (!expectedSecret) {
+      throw new Error("Server configuration error: ADMIN_SECRET not set");
+    }
     if (args.adminSecret !== expectedSecret) {
       throw new Error("Unauthorized: Invalid admin secret");
     }
@@ -695,8 +637,11 @@ export const adminUpdateMenuItem = mutation({
     isAvailable: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Verify admin secret
-    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    // Verify admin secret - REQUIRES environment variable (no fallback for security)
+    const expectedSecret = process.env.ADMIN_SECRET;
+    if (!expectedSecret) {
+      throw new Error("Server configuration error: ADMIN_SECRET not set");
+    }
     if (args.adminSecret !== expectedSecret) {
       throw new Error("Unauthorized: Invalid admin secret");
     }
@@ -743,8 +688,11 @@ export const adminDeleteAllMenuItems = mutation({
     restaurantSlug: v.string(),
   },
   handler: async (ctx, args) => {
-    // Verify admin secret
-    const expectedSecret = process.env.ADMIN_SECRET || "stepperslife-admin-2024";
+    // Verify admin secret - REQUIRES environment variable (no fallback for security)
+    const expectedSecret = process.env.ADMIN_SECRET;
+    if (!expectedSecret) {
+      throw new Error("Server configuration error: ADMIN_SECRET not set");
+    }
     if (args.adminSecret !== expectedSecret) {
       throw new Error("Unauthorized: Invalid admin secret");
     }
