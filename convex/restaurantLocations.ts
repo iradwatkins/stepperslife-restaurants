@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { requireRestaurantOwner } from "./lib/restaurantAuth";
-import { validateRequiredString, validatePhoneNumber } from "./lib/validation";
+import {
+  validateRequiredString,
+  validatePhoneNumber,
+  validateCoordinates,
+  validatePickupTime,
+  validateSeatingCapacity,
+} from "./lib/validation";
 import { Id } from "./_generated/dataModel";
 
 // ==========================================
@@ -133,6 +139,15 @@ export const create = mutation({
       validatePhoneNumber(args.phone, "Phone number");
     }
 
+    // Validate numeric fields
+    validatePickupTime(args.estimatedPickupTime);
+    validateSeatingCapacity(args.seatingCapacity);
+
+    // Validate coordinates if provided
+    if (args.coordinates) {
+      validateCoordinates(args.coordinates.lat, args.coordinates.lng);
+    }
+
     // Generate slug from restaurant slug + location name
     const restaurant = await ctx.db.get(args.restaurantId);
     if (!restaurant) {
@@ -249,6 +264,15 @@ export const update = mutation({
     }
     if (args.phone) {
       validatePhoneNumber(args.phone, "Phone number");
+    }
+
+    // Validate numeric fields if provided
+    validatePickupTime(args.estimatedPickupTime);
+    validateSeatingCapacity(args.seatingCapacity);
+
+    // Validate coordinates if provided
+    if (args.coordinates) {
+      validateCoordinates(args.coordinates.lat, args.coordinates.lng);
     }
 
     // If setting this as primary, unset other primaries

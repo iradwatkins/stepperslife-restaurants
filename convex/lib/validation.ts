@@ -283,3 +283,97 @@ export function sanitizeText(text: string, maxLength = 5000): string {
 
   return sanitized;
 }
+
+/**
+ * Validates geographic coordinates
+ * @throws Error if coordinates are invalid
+ */
+export function validateCoordinates(
+  lat: number | undefined,
+  lng: number | undefined,
+  fieldName = "Coordinates"
+): void {
+  if (lat === undefined && lng === undefined) {
+    return; // Both undefined is valid (optional coordinates)
+  }
+
+  if ((lat === undefined) !== (lng === undefined)) {
+    throw new Error(`${fieldName}: Both latitude and longitude must be provided together`);
+  }
+
+  if (typeof lat !== "number" || isNaN(lat)) {
+    throw new Error(`${fieldName}: Latitude must be a valid number`);
+  }
+
+  if (typeof lng !== "number" || isNaN(lng)) {
+    throw new Error(`${fieldName}: Longitude must be a valid number`);
+  }
+
+  // Valid latitude range: -90 to 90
+  if (lat < -90 || lat > 90) {
+    throw new Error(`${fieldName}: Latitude must be between -90 and 90`);
+  }
+
+  // Valid longitude range: -180 to 180
+  if (lng < -180 || lng > 180) {
+    throw new Error(`${fieldName}: Longitude must be between -180 and 180`);
+  }
+}
+
+/**
+ * Validates estimated pickup time (in minutes)
+ * @throws Error if time is invalid
+ */
+export function validatePickupTime(
+  minutes: number | undefined,
+  fieldName = "Estimated pickup time"
+): void {
+  if (minutes === undefined) {
+    return; // Optional field
+  }
+
+  if (typeof minutes !== "number" || isNaN(minutes)) {
+    throw new Error(`${fieldName} must be a valid number`);
+  }
+
+  if (!Number.isInteger(minutes)) {
+    throw new Error(`${fieldName} must be a whole number`);
+  }
+
+  if (minutes < 5) {
+    throw new Error(`${fieldName} must be at least 5 minutes`);
+  }
+
+  if (minutes > 180) {
+    throw new Error(`${fieldName} cannot exceed 180 minutes (3 hours)`);
+  }
+}
+
+/**
+ * Validates seating capacity
+ * @throws Error if capacity is invalid
+ */
+export function validateSeatingCapacity(
+  capacity: number | undefined,
+  fieldName = "Seating capacity"
+): void {
+  if (capacity === undefined) {
+    return; // Optional field
+  }
+
+  if (typeof capacity !== "number" || isNaN(capacity)) {
+    throw new Error(`${fieldName} must be a valid number`);
+  }
+
+  if (!Number.isInteger(capacity)) {
+    throw new Error(`${fieldName} must be a whole number`);
+  }
+
+  if (capacity < 1) {
+    throw new Error(`${fieldName} must be at least 1`);
+  }
+
+  if (capacity > 10000) {
+    throw new Error(`${fieldName} cannot exceed 10,000`);
+  }
+}

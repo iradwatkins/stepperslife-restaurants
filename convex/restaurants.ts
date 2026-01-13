@@ -12,22 +12,20 @@ export const getAll = query({
     lateNightOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    try {
-      // Use filter instead of index to avoid potential index issues
-      const allRestaurants = await ctx.db.query("restaurants").collect();
-      let restaurants = allRestaurants.filter((r) => r.isActive === true);
+    // Use index for active restaurants (more efficient than full table scan + filter)
+    const allRestaurants = await ctx.db
+      .query("restaurants")
+      .withIndex("by_active", (q) => q.eq("isActive", true))
+      .collect();
 
-      // Filter for late-night restaurants (open after 2am) if requested
-      if (args.lateNightOnly) {
-        restaurants = restaurants.filter((r) => r.isOpenLateNight === true);
-      }
+    let restaurants = allRestaurants;
 
-      return restaurants;
-    } catch (error) {
-      console.error("Error fetching restaurants:", error);
-      // Return empty array if there's an error
-      return [];
+    // Filter for late-night restaurants (open after 2am) if requested
+    if (args.lateNightOnly) {
+      restaurants = restaurants.filter((r) => r.isOpenLateNight === true);
     }
+
+    return restaurants;
   },
 });
 
@@ -35,15 +33,14 @@ export const getAll = query({
 export const getBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
-    try {
-      return await ctx.db
-        .query("restaurants")
-        .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-        .first();
-    } catch (error) {
-      console.error("Error fetching restaurant by slug:", error);
+    // Validate slug format
+    if (!args.slug || args.slug.trim().length === 0) {
       return null;
     }
+    return await ctx.db
+      .query("restaurants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug.trim().toLowerCase()))
+      .first();
   },
 });
 
@@ -201,15 +198,12 @@ export const toggleAcceptingOrders = mutation({
 export const getFeatured = query({
   args: {},
   handler: async (ctx) => {
-    try {
-      // Use filter instead of index to avoid potential index issues
-      const allRestaurants = await ctx.db.query("restaurants").collect();
-      const activeRestaurants = allRestaurants.filter((r) => r.isActive === true);
-      return activeRestaurants.slice(0, 5);
-    } catch (error) {
-      console.error("Error fetching featured restaurants:", error);
-      return [];
-    }
+    // Use index for active restaurants
+    const activeRestaurants = await ctx.db
+      .query("restaurants")
+      .withIndex("by_active", (q) => q.eq("isActive", true))
+      .take(5);
+    return activeRestaurants;
   },
 });
 
@@ -1088,23 +1082,26 @@ export const getOnboardingProgress = query({
 export const getByCity = query({
   args: { city: v.string() },
   handler: async (ctx, args) => {
-    try {
-      const allRestaurants = await ctx.db.query("restaurants").collect();
-
-      // Filter by city and active status
-      const cityRestaurants = allRestaurants
-        .filter(
-          (r) =>
-            r.isActive === true &&
-            r.city.toLowerCase() === args.city.toLowerCase()
-        )
-        .slice(0, 4); // Limit to 4 for visual appeal
-
-      return cityRestaurants;
-    } catch (error) {
-      console.error("Error fetching restaurants by city:", error);
+    // Validate city parameter
+    if (!args.city || args.city.trim().length === 0) {
       return [];
     }
+
+    const normalizedCity = args.city.trim().toLowerCase();
+
+    // Get active restaurants and filter by city
+    // Note: A by_city index would be more efficient for large datasets
+    const activeRestaurants = await ctx.db
+      .query("restaurants")
+      .withIndex("by_active", (q) => q.eq("isActive", true))
+      .collect();
+
+    // Filter by city (case-insensitive)
+    const cityRestaurants = activeRestaurants
+      .filter((r) => r.city.toLowerCase() === normalizedCity)
+      .slice(0, 4);
+
+    return cityRestaurants;
   },
 });
 

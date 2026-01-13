@@ -8,10 +8,12 @@ import { validateRating, validateRequiredString, validateArray, sanitizeText } f
 export const getByRestaurant = query({
   args: {
     restaurantId: v.id("restaurants"),
-    limit: v.optional(v.number()),
+    limit: v.optional(v.number()), // Max reviews to return, default 50, max 100
   },
   handler: async (ctx, args) => {
-    const limit = args.limit || 50;
+    // Validate limit (1-100 range)
+    const limit = Math.min(Math.max(args.limit || 50, 1), 100);
+
     const reviews = await ctx.db
       .query("restaurantReviews")
       .withIndex("by_restaurant", (q) => q.eq("restaurantId", args.restaurantId))
@@ -19,19 +21,32 @@ export const getByRestaurant = query({
       .order("desc")
       .take(limit);
 
-    // Get customer info for each review
-    const reviewsWithCustomers = await Promise.all(
-      reviews.map(async (review) => {
-        const customer = await ctx.db.get(review.customerId);
-        return {
-          ...review,
-          customerName: customer?.name || "Anonymous",
-          customerImage: customer?.image,
-        };
-      })
-    );
+    if (reviews.length === 0) {
+      return [];
+    }
 
-    return reviewsWithCustomers;
+    // Batch fetch all customers at once to avoid N+1 query problem
+    const customerIds = [...new Set(reviews.map((r) => r.customerId))];
+    const customers = await Promise.all(customerIds.map((id) => ctx.db.get(id)));
+
+    // Create a lookup map for O(1) access
+    const customerMap = new Map<string, { name?: string; image?: string }>();
+    for (let i = 0; i < customerIds.length; i++) {
+      const customer = customers[i];
+      if (customer) {
+        customerMap.set(customerIds[i], { name: customer.name, image: customer.image });
+      }
+    }
+
+    // Map reviews with customer data
+    return reviews.map((review) => {
+      const customer = customerMap.get(review.customerId);
+      return {
+        ...review,
+        customerName: customer?.name || "Anonymous",
+        customerImage: customer?.image,
+      };
+    });
   },
 });
 

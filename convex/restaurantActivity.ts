@@ -2,22 +2,41 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { getCurrentUser } from "./lib/auth";
 import { getMyRestaurants, getRestaurantAccess } from "./lib/restaurantAuth";
+import { Id } from "./_generated/dataModel";
+
+// Activity item type
+interface ActivityItem {
+  id: string;
+  type: "order" | "review" | "staff" | "status";
+  title: string;
+  description: string;
+  timestamp: number;
+  restaurantId: string;
+  restaurantName?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Max items per category per restaurant (prevents memory issues)
+const MAX_ITEMS_PER_CATEGORY = 10;
+const MAX_TOTAL_ACTIVITY = 100;
 
 /**
  * Get recent activity for user's restaurants
  * Combines orders, reviews, and staff changes into a single feed
+ * Optimized to batch database queries and avoid N+1 patterns
  */
 export const getRecentActivity = query({
   args: {
     restaurantId: v.optional(v.id("restaurants")),
-    limit: v.optional(v.number()),
+    limit: v.optional(v.number()), // Max activities to return, default 20, max 100
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
-    const limit = args.limit || 20;
+    // Validate limit (1-100 range)
+    const limit = Math.min(Math.max(args.limit || 20, 1), MAX_TOTAL_ACTIVITY);
 
     // Get restaurants the user has access to
-    let restaurantIds: string[] = [];
+    let restaurantIds: Id<"restaurants">[] = [];
 
     if (args.restaurantId) {
       // Verify user has access to this restaurant
@@ -36,27 +55,84 @@ export const getRecentActivity = query({
       return [];
     }
 
-    const activities: Array<{
-      id: string;
-      type: "order" | "review" | "staff" | "status";
-      title: string;
-      description: string;
-      timestamp: number;
-      restaurantId: string;
-      restaurantName?: string;
-      metadata?: Record<string, unknown>;
-    }> = [];
+    // OPTIMIZATION: Batch fetch all restaurants at once
+    const restaurants = await Promise.all(restaurantIds.map((id) => ctx.db.get(id)));
+    const restaurantMap = new Map<string, string>();
+    for (let i = 0; i < restaurantIds.length; i++) {
+      const restaurant = restaurants[i];
+      if (restaurant) {
+        restaurantMap.set(restaurantIds[i], restaurant.name);
+      }
+    }
 
-    // Fetch recent orders (last 24 hours or most recent 10)
-    for (const restaurantId of restaurantIds) {
-      const restaurant = await ctx.db.get(restaurantId as any) as { name?: string } | null;
+    // OPTIMIZATION: Batch fetch orders, reviews, and staff for all restaurants in parallel
+    const [allOrders, allReviews, allStaff] = await Promise.all([
+      // Fetch orders for all restaurants
+      Promise.all(
+        restaurantIds.map((restaurantId) =>
+          ctx.db
+            .query("foodOrders")
+            .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId))
+            .order("desc")
+            .take(MAX_ITEMS_PER_CATEGORY)
+        )
+      ),
+      // Fetch reviews for all restaurants
+      Promise.all(
+        restaurantIds.map((restaurantId) =>
+          ctx.db
+            .query("restaurantReviews")
+            .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId))
+            .order("desc")
+            .take(MAX_ITEMS_PER_CATEGORY)
+        )
+      ),
+      // Fetch staff changes for all restaurants
+      Promise.all(
+        restaurantIds.map((restaurantId) =>
+          ctx.db
+            .query("restaurantStaff")
+            .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId))
+            .order("desc")
+            .take(MAX_ITEMS_PER_CATEGORY)
+        )
+      ),
+    ]);
 
-      // Get recent orders
-      const orders = await ctx.db
-        .query("foodOrders")
-        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
-        .order("desc")
-        .take(10);
+    // OPTIMIZATION: Collect all user IDs that need to be fetched
+    const userIdsToFetch = new Set<Id<"users">>();
+    for (const reviews of allReviews) {
+      for (const review of reviews) {
+        userIdsToFetch.add(review.customerId);
+      }
+    }
+    for (const staffList of allStaff) {
+      for (const staff of staffList) {
+        if (staff.userId) {
+          userIdsToFetch.add(staff.userId);
+        }
+      }
+    }
+
+    // OPTIMIZATION: Batch fetch all users at once
+    const userIds = [...userIdsToFetch];
+    const users = await Promise.all(userIds.map((id) => ctx.db.get(id)));
+    const userMap = new Map<string, { name?: string }>();
+    for (let i = 0; i < userIds.length; i++) {
+      const user = users[i];
+      if (user) {
+        userMap.set(userIds[i], { name: user.name });
+      }
+    }
+
+    // Build activities array
+    const activities: ActivityItem[] = [];
+
+    // Process orders
+    for (let i = 0; i < restaurantIds.length; i++) {
+      const restaurantId = restaurantIds[i];
+      const restaurantName = restaurantMap.get(restaurantId);
+      const orders = allOrders[i];
 
       for (const order of orders) {
         activities.push({
@@ -66,7 +142,7 @@ export const getRecentActivity = query({
           description: `${order.customerName} - $${(order.total / 100).toFixed(2)}`,
           timestamp: order.placedAt,
           restaurantId,
-          restaurantName: restaurant?.name,
+          restaurantName,
           metadata: {
             status: order.status,
             total: order.total,
@@ -74,16 +150,16 @@ export const getRecentActivity = query({
           },
         });
       }
+    }
 
-      // Get recent reviews
-      const reviews = await ctx.db
-        .query("restaurantReviews")
-        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
-        .order("desc")
-        .take(5);
+    // Process reviews
+    for (let i = 0; i < restaurantIds.length; i++) {
+      const restaurantId = restaurantIds[i];
+      const restaurantName = restaurantMap.get(restaurantId);
+      const reviews = allReviews[i];
 
       for (const review of reviews) {
-        const reviewer = await ctx.db.get(review.customerId) as { name?: string } | null;
+        const reviewer = userMap.get(review.customerId);
         activities.push({
           id: review._id,
           type: "review",
@@ -93,24 +169,23 @@ export const getRecentActivity = query({
             : "No comment",
           timestamp: review.createdAt,
           restaurantId,
-          restaurantName: restaurant?.name,
+          restaurantName,
           metadata: {
             rating: review.rating,
             reviewerName: reviewer?.name || "Anonymous",
           },
         });
       }
+    }
 
-      // Get recent staff changes
-      const staffChanges = await ctx.db
-        .query("restaurantStaff")
-        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
-        .order("desc")
-        .take(5);
+    // Process staff changes
+    for (let i = 0; i < restaurantIds.length; i++) {
+      const restaurantId = restaurantIds[i];
+      const restaurantName = restaurantMap.get(restaurantId);
+      const staffList = allStaff[i];
 
-      for (const staff of staffChanges) {
-        // userId may be undefined for pending invitations
-        const staffUser = staff.userId ? await ctx.db.get(staff.userId) : null;
+      for (const staff of staffList) {
+        const staffUser = staff.userId ? userMap.get(staff.userId) : null;
         const statusLabel =
           staff.status === "ACTIVE"
             ? "joined"
@@ -124,7 +199,7 @@ export const getRecentActivity = query({
           description: `Role: ${staff.role === "RESTAURANT_MANAGER" ? "Manager" : "Staff"}`,
           timestamp: staff.updatedAt || staff.createdAt,
           restaurantId,
-          restaurantName: restaurant?.name,
+          restaurantName,
           metadata: {
             role: staff.role,
             status: staff.status,
@@ -141,6 +216,7 @@ export const getRecentActivity = query({
 
 /**
  * Get order stats for dashboard
+ * Optimized to batch queries across restaurants
  */
 export const getOrderStats = query({
   args: {
@@ -150,7 +226,7 @@ export const getOrderStats = query({
     const user = await getCurrentUser(ctx);
 
     // Get restaurants the user has access to
-    let restaurantIds: string[] = [];
+    let restaurantIds: Id<"restaurants">[] = [];
 
     if (args.restaurantId) {
       const access = await getRestaurantAccess(ctx, args.restaurantId);
@@ -172,53 +248,62 @@ export const getOrderStats = query({
       };
     }
 
-    const now = Date.now();
     const todayStart = new Date().setHours(0, 0, 0, 0);
 
+    // OPTIMIZATION: Fetch all orders for all restaurants in parallel
+    const [allOrders, allReviews] = await Promise.all([
+      Promise.all(
+        restaurantIds.map((restaurantId) =>
+          ctx.db
+            .query("foodOrders")
+            .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId))
+            .collect()
+        )
+      ),
+      Promise.all(
+        restaurantIds.map((restaurantId) =>
+          ctx.db
+            .query("restaurantReviews")
+            .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId))
+            .filter((q) => q.eq(q.field("status"), "published"))
+            .collect()
+        )
+      ),
+    ]);
+
+    // Calculate stats across all restaurants
     let pendingOrders = 0;
     let todayOrders = 0;
     let todayRevenue = 0;
     let totalRating = 0;
     let reviewCount = 0;
 
-    for (const restaurantId of restaurantIds) {
-      // Count pending orders
-      const pending = await ctx.db
-        .query("foodOrders")
-        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
-        .filter((q) =>
-          q.or(
-            q.eq(q.field("status"), "PENDING"),
-            q.eq(q.field("status"), "CONFIRMED"),
-            q.eq(q.field("status"), "PREPARING")
-          )
-        )
-        .collect();
-      pendingOrders += pending.length;
+    for (const orders of allOrders) {
+      for (const order of orders) {
+        // Count pending orders
+        if (["PENDING", "CONFIRMED", "PREPARING"].includes(order.status)) {
+          pendingOrders++;
+        }
+        // Count today's orders
+        if (order.placedAt >= todayStart) {
+          todayOrders++;
+          todayRevenue += order.total;
+        }
+      }
+    }
 
-      // Count today's orders
-      const today = await ctx.db
-        .query("foodOrders")
-        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
-        .filter((q) => q.gte(q.field("placedAt"), todayStart))
-        .collect();
-      todayOrders += today.length;
-      todayRevenue += today.reduce((sum, order) => sum + order.total, 0);
-
-      // Get average rating
-      const reviews = await ctx.db
-        .query("restaurantReviews")
-        .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
-        .collect();
-      totalRating += reviews.reduce((sum, review) => sum + review.rating, 0);
-      reviewCount += reviews.length;
+    for (const reviews of allReviews) {
+      for (const review of reviews) {
+        totalRating += review.rating;
+        reviewCount++;
+      }
     }
 
     return {
       pendingOrders,
       todayOrders,
       todayRevenue,
-      averageRating: reviewCount > 0 ? totalRating / reviewCount : 0,
+      averageRating: reviewCount > 0 ? Math.round((totalRating / reviewCount) * 10) / 10 : 0,
     };
   },
 });

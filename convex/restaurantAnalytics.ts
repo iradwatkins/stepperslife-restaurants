@@ -2,17 +2,33 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireRestaurantRole } from "./lib/restaurantAuth";
 
+// Constants for analytics
+const MAX_DAYS_RANGE = 365; // Maximum days to query
+const DEFAULT_DAYS = 30;
+const MIN_DAYS = 1;
+
+/**
+ * Validate and normalize the days parameter
+ */
+function validateDays(days: number | undefined): number {
+  const value = days ?? DEFAULT_DAYS;
+  if (!Number.isFinite(value) || value < MIN_DAYS) {
+    return DEFAULT_DAYS;
+  }
+  return Math.min(Math.floor(value), MAX_DAYS_RANGE);
+}
+
 // Get order stats for a restaurant (requires MANAGER role or higher)
 export const getOrderStats = query({
   args: {
     restaurantId: v.id("restaurants"),
-    days: v.optional(v.number()), // Last N days, default 30
+    days: v.optional(v.number()), // Last N days, default 30, max 365
   },
   handler: async (ctx, args) => {
     // Verify user has at least MANAGER role for this restaurant
     await requireRestaurantRole(ctx, args.restaurantId, "RESTAURANT_MANAGER");
 
-    const days = args.days || 30;
+    const days = validateDays(args.days);
     const cutoffTime = Date.now() - days * 24 * 60 * 60 * 1000;
 
     const allOrders = await ctx.db
@@ -53,13 +69,13 @@ export const getOrderStats = query({
 export const getDailyTrends = query({
   args: {
     restaurantId: v.id("restaurants"),
-    days: v.optional(v.number()),
+    days: v.optional(v.number()), // Last N days, default 14, max 365
   },
   handler: async (ctx, args) => {
     // Verify user has at least MANAGER role for this restaurant
     await requireRestaurantRole(ctx, args.restaurantId, "RESTAURANT_MANAGER");
 
-    const days = args.days || 14;
+    const days = validateDays(args.days) || 14;
     const cutoffTime = Date.now() - days * 24 * 60 * 60 * 1000;
 
     const orders = await ctx.db
@@ -100,17 +116,27 @@ export const getDailyTrends = query({
   },
 });
 
+// Type for order items in analytics
+interface OrderItem {
+  menuItemId?: string;
+  id?: string;
+  name: string;
+  quantity?: number;
+  price?: number;
+}
+
 // Get popular menu items (requires MANAGER role or higher)
 export const getPopularItems = query({
   args: {
     restaurantId: v.id("restaurants"),
-    limit: v.optional(v.number()),
+    limit: v.optional(v.number()), // Max items to return, default 10, max 50
   },
   handler: async (ctx, args) => {
     // Verify user has at least MANAGER role for this restaurant
     await requireRestaurantRole(ctx, args.restaurantId, "RESTAURANT_MANAGER");
 
-    const limit = args.limit || 10;
+    // Validate limit (1-50 range)
+    const limit = Math.min(Math.max(args.limit || 10, 1), 50);
 
     // Get completed orders
     const orders = await ctx.db
@@ -119,21 +145,25 @@ export const getPopularItems = query({
       .filter((q) => q.eq(q.field("status"), "COMPLETED"))
       .collect();
 
-    // Count item occurrences
+    // Count item occurrences with proper typing
     const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {};
 
-    orders.forEach((order) => {
+    for (const order of orders) {
       if (order.items && Array.isArray(order.items)) {
-        order.items.forEach((item: any) => {
+        for (const item of order.items as OrderItem[]) {
           const id = item.menuItemId || item.id || item.name;
+          if (!id) continue; // Skip items without an identifier
+
           if (!itemCounts[id]) {
-            itemCounts[id] = { name: item.name, count: 0, revenue: 0 };
+            itemCounts[id] = { name: item.name || "Unknown Item", count: 0, revenue: 0 };
           }
-          itemCounts[id].count += item.quantity || 1;
-          itemCounts[id].revenue += (item.price || 0) * (item.quantity || 1);
-        });
+          const quantity = Math.max(item.quantity || 1, 0);
+          const price = Math.max(item.price || 0, 0);
+          itemCounts[id].count += quantity;
+          itemCounts[id].revenue += price * quantity;
+        }
       }
-    });
+    }
 
     // Sort by count and return top items
     return Object.entries(itemCounts)
@@ -147,13 +177,13 @@ export const getPopularItems = query({
 export const getHourlyDistribution = query({
   args: {
     restaurantId: v.id("restaurants"),
-    days: v.optional(v.number()),
+    days: v.optional(v.number()), // Last N days, default 30, max 365
   },
   handler: async (ctx, args) => {
     // Verify user has at least MANAGER role for this restaurant
     await requireRestaurantRole(ctx, args.restaurantId, "RESTAURANT_MANAGER");
 
-    const days = args.days || 30;
+    const days = validateDays(args.days);
     const cutoffTime = Date.now() - days * 24 * 60 * 60 * 1000;
 
     const orders = await ctx.db
